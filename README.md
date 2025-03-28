@@ -87,47 +87,6 @@ Threat check against URLhaus blacklist:
 No threats detected in URLhaus blacklist.
 ```
 
-Running `check_ip_threats` for specific IP analysis:
-
-```
-IP Threat Analysis:
-Target IP: 192.168.1.100
-Results:
-- Reputation Score: 95/100 (Clean)
-- Last Seen: 2024-03-27
-- Known Services: Web hosting
-- Threat Feeds: No matches found
-- Geographic Location: United States
-- ASN: AS12345 (Example Network)
-
-Target IP: 203.0.113.1
-Results:
-- Reputation Score: 15/100 (Suspicious)
-- Last Seen: 2024-03-28
-- Known Activities: Port scanning
-- Threat Feeds: Listed in 2 feeds
-  * Emerging Threats (Category: Scanner)
-  * AbuseIPDB (Reports: 15)
-- Geographic Location: Unknown
-- ASN: AS67890 (Anonymous Hosting Ltd.)
-```
-
-Running `analyze_pcap` with narrative analysis:
-
-```
-Network Activity Narrative:
-During this capture period (14:23:45 - 14:24:15):
-- Observed HTTP traffic to api.example.com (Port 443)
-- Multiple DNS queries for cloud services
-- Regular keepalive packets between local workstation and gateway
-- Detected normal HTTPS handshakes with trusted certificates
-- No suspicious patterns or anomalies detected in the traffic flow
-
-Key Statistics:
-- 75% HTTPS traffic
-- 15% DNS queries
-- 10% other protocols
-```
 
 LLMs can use these outputs to:
 - Provide natural language explanations of network activity

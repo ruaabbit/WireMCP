@@ -10,6 +10,8 @@ WireMCP exposes the following tools to MCP clients, enhancing LLM understanding 
 - **`get_summary_stats`**: Provides protocol hierarchy statistics, giving LLMs an overview of traffic composition (e.g., TCP vs. UDP usage).
 - **`get_conversations`**: Delivers TCP/UDP conversation statistics, allowing LLMs to track communication flows between endpoints.
 - **`check_threats`**: Captures IPs and checks them against the URLhaus blacklist, equipping LLMs with threat intelligence context for identifying malicious activity.
+- **`check_ip_threats`**: Performs targeted threat intelligence lookups for specific IP addresses against multiple threat feeds, providing detailed reputation and threat data.
+
 
 ## How It Helps LLMs
 WireMCP bridges the gap between raw network data and LLM comprehension by:
@@ -83,6 +85,31 @@ Captured IPs:
 
 Threat check against URLhaus blacklist:
 No threats detected in URLhaus blacklist.
+```
+
+Running `check_ip_threats` for specific IP analysis:
+
+```
+IP Threat Analysis:
+Target IP: 192.168.1.100
+Results:
+- Reputation Score: 95/100 (Clean)
+- Last Seen: 2024-03-27
+- Known Services: Web hosting
+- Threat Feeds: No matches found
+- Geographic Location: United States
+- ASN: AS12345 (Example Network)
+
+Target IP: 203.0.113.1
+Results:
+- Reputation Score: 15/100 (Suspicious)
+- Last Seen: 2024-03-28
+- Known Activities: Port scanning
+- Threat Feeds: Listed in 2 feeds
+  * Emerging Threats (Category: Scanner)
+  * AbuseIPDB (Reports: 15)
+- Geographic Location: Unknown
+- ASN: AS67890 (Anonymous Hosting Ltd.)
 ```
 
 Running `analyze_pcap` with narrative analysis:

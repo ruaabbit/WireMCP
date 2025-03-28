@@ -251,6 +251,59 @@ server.tool(
   }
 );
 
+// Tool 5: Check a specific IP against URLhaus IOCs
+server.tool(
+  'check_ip_threats',
+  'Check a given IP address against URLhaus blacklist for IOCs',
+  {
+    ip: z.string().regex(/\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\b/).describe('IP address to check (e.g., 192.168.1.1)'),
+  },
+  async (args) => {
+    try {
+      const { ip } = args;
+      console.error(`Checking IP ${ip} against URLhaus blacklist`);
+
+      // Fetch URLhaus blacklist and extract IPs from URLs
+      const urlhausUrl = 'https://urlhaus.abuse.ch/downloads/text/';
+      console.error(`Fetching URLhaus blacklist from ${urlhausUrl}`);
+      let urlhausData;
+      let isThreat = false;
+      try {
+        const response = await axios.get(urlhausUrl);
+        console.error(`URLhaus response status: ${response.status}, length: ${response.data.length} chars`);
+        console.error(`URLhaus raw data (first 200 chars): ${response.data.slice(0, 200)}`);
+        const ipRegex = /\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\b/;
+        urlhausData = [...new Set(response.data.split('\n')
+          .map(line => {
+            const match = line.match(ipRegex);
+            return match ? match[0] : null;
+          })
+          .filter(ip => ip))];
+        console.error(`URLhaus lookup successful: ${urlhausData.length} blacklist IPs fetched`);
+        console.error(`Sample URLhaus IPs: ${urlhausData.slice(0, 5).join(', ') || 'None'}`);
+        isThreat = urlhausData.includes(ip);
+        console.error(`IP ${ip} checked against URLhaus: ${isThreat ? 'Threat found' : 'No threat found'}`);
+      } catch (e) {
+        console.error(`Failed to fetch URLhaus data: ${e.message}`);
+        urlhausData = [];
+      }
+
+      // Output results
+      const outputText = `IP checked: ${ip}\n\n` +
+        `Threat check against URLhaus blacklist:\n${
+          isThreat ? 'Potential threat detected in URLhaus blacklist.' : 'No threat detected in URLhaus blacklist.'
+        }`;
+
+      return {
+        content: [{ type: 'text', text: outputText }],
+      };
+    } catch (error) {
+      console.error(`Error in check_ip_threats: ${error.message}`);
+      return { content: [{ type: 'text', text: `Error: ${error.message}` }], isError: true };
+    }
+  }
+);
+
 // Start the server
 server.connect(new StdioServerTransport())
   .then(() => console.error('WireMCP Server is running...'))

@@ -29,7 +29,7 @@ WireMCP bridges the gap between raw network data and LLM comprehension by:
 ## Setup
 1. Clone the repository:
    ```bash
-   git clone https://github.com/YOUR_USERNAME/WireMCP.git
+   git clone https://github.com/0xkoda/WireMCP.git
    cd WireMCP
    ```
 

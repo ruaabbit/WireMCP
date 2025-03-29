@@ -193,13 +193,11 @@ server.tool(
       const tempPcap = 'temp_capture.pcap';
       console.error(`Capturing traffic on ${interface} for ${duration}s to check threats`);
 
-      // Capture live traffic
       await execAsync(
         `${tsharkPath} -i ${interface} -w ${tempPcap} -a duration:${duration}`,
         { env: { ...process.env, PATH: `${process.env.PATH}:/usr/bin:/usr/local/bin:/opt/homebrew/bin` } }
       );
 
-      // Extract IPs
       const { stdout } = await execAsync(
         `${tsharkPath} -r "${tempPcap}" -T fields -e ip.src -e ip.dst`,
         { env: { ...process.env, PATH: `${process.env.PATH}:/usr/bin:/usr/local/bin:/opt/homebrew/bin` } }
@@ -207,7 +205,6 @@ server.tool(
       const ips = [...new Set(stdout.split('\n').flatMap(line => line.split('\t')).filter(ip => ip && ip !== 'unknown'))];
       console.error(`Captured ${ips.length} unique IPs: ${ips.join(', ')}`);
 
-      // Fetch URLhaus blacklist and extract IPs from URLs
       const urlhausUrl = 'https://urlhaus.abuse.ch/downloads/text/';
       console.error(`Fetching URLhaus blacklist from ${urlhausUrl}`);
       let urlhausData;
@@ -232,13 +229,11 @@ server.tool(
         urlhausData = [];
       }
 
-      // Output results
       const outputText = `Captured IPs:\n${ips.join('\n')}\n\n` +
         `Threat check against URLhaus blacklist:\n${
           urlhausThreats.length > 0 ? `Potential threats: ${urlhausThreats.join(', ')}` : 'No threats detected in URLhaus blacklist.'
         }`;
 
-      // Clean up
       await fs.unlink(tempPcap).catch(err => console.error(`Failed to delete ${tempPcap}: ${err.message}`));
 
       return {
@@ -263,7 +258,6 @@ server.tool(
       const { ip } = args;
       console.error(`Checking IP ${ip} against URLhaus blacklist`);
 
-      // Fetch URLhaus blacklist and extract IPs from URLs
       const urlhausUrl = 'https://urlhaus.abuse.ch/downloads/text/';
       console.error(`Fetching URLhaus blacklist from ${urlhausUrl}`);
       let urlhausData;
@@ -288,7 +282,6 @@ server.tool(
         urlhausData = [];
       }
 
-      // Output results
       const outputText = `IP checked: ${ip}\n\n` +
         `Threat check against URLhaus blacklist:\n${
           isThreat ? 'Potential threat detected in URLhaus blacklist.' : 'No threat detected in URLhaus blacklist.'
@@ -303,6 +296,157 @@ server.tool(
     }
   }
 );
+
+// Tool 6: Analyze an existing PCAP file for general context
+server.tool(
+  'analyze_pcap',
+  'Analyze a PCAP file and provide general packet data as JSON for LLM analysis',
+  {
+    pcapPath: z.string().describe('Path to the PCAP file to analyze (e.g., ./demo.pcap)'),
+  },
+  async (args) => {
+    try {
+      const tsharkPath = await findTshark();
+      const { pcapPath } = args;
+      console.error(`Analyzing PCAP file: ${pcapPath}`);
+
+      // Check if file exists
+      await fs.access(pcapPath);
+
+      // Extract broad packet data
+      const { stdout, stderr } = await execAsync(
+        `${tsharkPath} -r "${pcapPath}" -T json -e frame.number -e ip.src -e ip.dst -e tcp.srcport -e tcp.dstport -e udp.srcport -e udp.dstport -e http.host -e http.request.uri -e frame.protocols`,
+        { env: { ...process.env, PATH: `${process.env.PATH}:/usr/bin:/usr/local/bin:/opt/homebrew/bin` } }
+      );
+      if (stderr) console.error(`tshark stderr: ${stderr}`);
+      const packets = JSON.parse(stdout);
+
+      const ips = [...new Set(packets.flatMap(p => [
+        p._source?.layers['ip.src']?.[0],
+        p._source?.layers['ip.dst']?.[0]
+      ]).filter(ip => ip))];
+      console.error(`Found ${ips.length} unique IPs: ${ips.join(', ')}`);
+
+      const urls = packets
+        .filter(p => p._source?.layers['http.host'] && p._source?.layers['http.request.uri'])
+        .map(p => `http://${p._source.layers['http.host'][0]}${p._source.layers['http.request.uri'][0]}`);
+      console.error(`Found ${urls.length} URLs: ${urls.join(', ') || 'None'}`);
+
+      const protocols = [...new Set(packets.map(p => p._source?.layers['frame.protocols']?.[0]))].filter(p => p);
+      console.error(`Found protocols: ${protocols.join(', ') || 'None'}`);
+
+      const maxChars = 720000;
+      let jsonString = JSON.stringify(packets);
+      if (jsonString.length > maxChars) {
+        const trimFactor = maxChars / jsonString.length;
+        const trimCount = Math.floor(packets.length * trimFactor);
+        packets.splice(trimCount);
+        jsonString = JSON.stringify(packets);
+        console.error(`Trimmed packets from ${packets.length} to ${trimCount} to fit ${maxChars} chars`);
+      }
+
+      const outputText = `Analyzed PCAP: ${pcapPath}\n\n` +
+        `Unique IPs:\n${ips.join('\n')}\n\n` +
+        `URLs:\n${urls.length > 0 ? urls.join('\n') : 'None'}\n\n` +
+        `Protocols:\n${protocols.join('\n') || 'None'}\n\n` +
+        `Packet Data (JSON for LLM):\n${jsonString}`;
+
+      return {
+        content: [{ type: 'text', text: outputText }],
+      };
+    } catch (error) {
+      console.error(`Error in analyze_pcap: ${error.message}`);
+      return { content: [{ type: 'text', text: `Error: ${error.message}` }], isError: true };
+    }
+  }
+);
+
+// Tool 7: Extract credentials from a PCAP file
+server.tool(
+    'extract_credentials',
+    'Extract potential credentials (HTTP Basic Auth, FTP, Telnet) from a PCAP file for LLM analysis',
+    {
+      pcapPath: z.string().describe('Path to the PCAP file to analyze (e.g., ./demo.pcap)'),
+    },
+    async (args) => {
+      try {
+        const tsharkPath = await findTshark();
+        const { pcapPath } = args;
+        console.error(`Extracting credentials from PCAP file: ${pcapPath}`);
+  
+        await fs.access(pcapPath);
+  
+        const { stdout } = await execAsync(
+          `${tsharkPath} -r "${pcapPath}" -T fields -e http.authbasic -e ftp.request.command -e ftp.request.arg -e telnet.data -e frame.number`,
+          { env: { ...process.env, PATH: `${process.env.PATH}:/usr/bin:/usr/local/bin:/opt/homebrew/bin` } }
+        );
+        const lines = stdout.split('\n').filter(line => line.trim());
+        const packets = lines.map(line => {
+          const [authBasic, ftpCmd, ftpArg, telnetData, frameNumber] = line.split('\t');
+          return {
+            authBasic: authBasic || '',
+            ftpCmd: ftpCmd || '',
+            ftpArg: ftpArg || '',
+            telnetData: telnetData || '',
+            frameNumber: frameNumber || ''
+          };
+        });
+  
+        const credentials = [];
+  
+        // HTTP Basic Auth
+        packets.forEach(p => {
+          if (p.authBasic) {
+            const [username, password] = Buffer.from(p.authBasic, 'base64').toString().split(':');
+            credentials.push({ type: 'HTTP Basic Auth', username, password, frame: p.frameNumber });
+          }
+        });
+  
+        // FTP
+        packets.forEach(p => {
+          if (p.ftpCmd === 'USER') {
+            credentials.push({ type: 'FTP', username: p.ftpArg, password: '', frame: p.frameNumber });
+          }
+          if (p.ftpCmd === 'PASS') {
+            const lastUser = credentials.findLast(c => c.type === 'FTP' && !c.password);
+            if (lastUser) lastUser.password = p.ftpArg;
+          }
+        });
+  
+        // Telnet - Raw extraction, let LLM interpret
+        packets.forEach(p => {
+          if (p.telnetData) {
+            const telnetStr = p.telnetData.trim();
+            if (telnetStr.toLowerCase().includes('login:') || telnetStr.toLowerCase().includes('password:')) {
+              credentials.push({ type: 'Telnet Prompt', data: telnetStr, frame: p.frameNumber });
+            } else if (telnetStr && !telnetStr.match(/[A-Z][a-z]+:/) && !telnetStr.includes(' ')) {
+              // Assume single-word inputs are potential credentials
+              const lastPrompt = credentials.findLast(c => c.type === 'Telnet Prompt');
+              if (lastPrompt && lastPrompt.data.toLowerCase().includes('login:')) {
+                credentials.push({ type: 'Telnet', username: telnetStr, password: '', frame: p.frameNumber });
+              } else if (lastPrompt && lastPrompt.data.toLowerCase().includes('password:')) {
+                const lastUser = credentials.findLast(c => c.type === 'Telnet' && !c.password);
+                if (lastUser) lastUser.password = telnetStr;
+                else credentials.push({ type: 'Telnet', username: '', password: telnetStr, frame: p.frameNumber });
+              }
+            }
+          }
+        });
+  
+        console.error(`Found ${credentials.length} credentials: ${credentials.length > 0 ? JSON.stringify(credentials) : 'None'}`);
+  
+        const outputText = `Analyzed PCAP: ${pcapPath}\n\n` +
+          `Credentials:\n${credentials.length > 0 ? credentials.map(c => c.type === 'Telnet Prompt' ? `${c.type}: ${c.data} (Frame ${c.frame})` : `${c.type}: ${c.username}:${c.password} (Frame ${c.frame})`).join('\n') : 'None'}`;
+  
+        return {
+          content: [{ type: 'text', text: outputText }],
+        };
+      } catch (error) {
+        console.error(`Error in extract_credentials: ${error.message}`);
+        return { content: [{ type: 'text', text: `Error: ${error.message}` }], isError: true };
+      }
+    }
+  );
 
 // Start the server
 server.connect(new StdioServerTransport())

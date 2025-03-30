@@ -376,11 +376,19 @@ server.tool(
   
         await fs.access(pcapPath);
   
-        const { stdout } = await execAsync(
+        // Extract plaintext credentials
+        const { stdout: plaintextOut } = await execAsync(
           `${tsharkPath} -r "${pcapPath}" -T fields -e http.authbasic -e ftp.request.command -e ftp.request.arg -e telnet.data -e frame.number`,
           { env: { ...process.env, PATH: `${process.env.PATH}:/usr/bin:/usr/local/bin:/opt/homebrew/bin` } }
         );
-        const lines = stdout.split('\n').filter(line => line.trim());
+
+        // Extract Kerberos credentials
+        const { stdout: kerberosOut } = await execAsync(
+          `${tsharkPath} -r "${pcapPath}" -T fields -e kerberos.CNameString -e kerberos.realm -e kerberos.cipher -e kerberos.type -e kerberos.msg_type -e frame.number`,
+          { env: { ...process.env, PATH: `${process.env.PATH}:/usr/bin:/usr/local/bin:/opt/homebrew/bin` } }
+        );
+
+        const lines = plaintextOut.split('\n').filter(line => line.trim());
         const packets = lines.map(line => {
           const [authBasic, ftpCmd, ftpArg, telnetData, frameNumber] = line.split('\t');
           return {
@@ -392,51 +400,103 @@ server.tool(
           };
         });
   
-        const credentials = [];
+        const credentials = {
+          plaintext: [],
+          encrypted: []
+        };
   
-        // HTTP Basic Auth
+        // Process HTTP Basic Auth
         packets.forEach(p => {
           if (p.authBasic) {
             const [username, password] = Buffer.from(p.authBasic, 'base64').toString().split(':');
-            credentials.push({ type: 'HTTP Basic Auth', username, password, frame: p.frameNumber });
+            credentials.plaintext.push({ type: 'HTTP Basic Auth', username, password, frame: p.frameNumber });
           }
         });
   
-        // FTP
+        // Process FTP
         packets.forEach(p => {
           if (p.ftpCmd === 'USER') {
-            credentials.push({ type: 'FTP', username: p.ftpArg, password: '', frame: p.frameNumber });
+            credentials.plaintext.push({ type: 'FTP', username: p.ftpArg, password: '', frame: p.frameNumber });
           }
           if (p.ftpCmd === 'PASS') {
-            const lastUser = credentials.findLast(c => c.type === 'FTP' && !c.password);
+            const lastUser = credentials.plaintext.findLast(c => c.type === 'FTP' && !c.password);
             if (lastUser) lastUser.password = p.ftpArg;
           }
         });
   
-        // Telnet - Raw extraction, let LLM interpret
+        // Process Telnet
         packets.forEach(p => {
           if (p.telnetData) {
             const telnetStr = p.telnetData.trim();
             if (telnetStr.toLowerCase().includes('login:') || telnetStr.toLowerCase().includes('password:')) {
-              credentials.push({ type: 'Telnet Prompt', data: telnetStr, frame: p.frameNumber });
+              credentials.plaintext.push({ type: 'Telnet Prompt', data: telnetStr, frame: p.frameNumber });
             } else if (telnetStr && !telnetStr.match(/[A-Z][a-z]+:/) && !telnetStr.includes(' ')) {
-              // Assume single-word inputs are potential credentials
-              const lastPrompt = credentials.findLast(c => c.type === 'Telnet Prompt');
+              const lastPrompt = credentials.plaintext.findLast(c => c.type === 'Telnet Prompt');
               if (lastPrompt && lastPrompt.data.toLowerCase().includes('login:')) {
-                credentials.push({ type: 'Telnet', username: telnetStr, password: '', frame: p.frameNumber });
+                credentials.plaintext.push({ type: 'Telnet', username: telnetStr, password: '', frame: p.frameNumber });
               } else if (lastPrompt && lastPrompt.data.toLowerCase().includes('password:')) {
-                const lastUser = credentials.findLast(c => c.type === 'Telnet' && !c.password);
+                const lastUser = credentials.plaintext.findLast(c => c.type === 'Telnet' && !c.password);
                 if (lastUser) lastUser.password = telnetStr;
-                else credentials.push({ type: 'Telnet', username: '', password: telnetStr, frame: p.frameNumber });
+                else credentials.plaintext.push({ type: 'Telnet', username: '', password: telnetStr, frame: p.frameNumber });
               }
             }
           }
         });
-  
-        console.error(`Found ${credentials.length} credentials: ${credentials.length > 0 ? JSON.stringify(credentials) : 'None'}`);
+
+        // Process Kerberos credentials
+        const kerberosLines = kerberosOut.split('\n').filter(line => line.trim());
+        kerberosLines.forEach(line => {
+          const [cname, realm, cipher, type, msgType, frameNumber] = line.split('\t');
+          
+          if (cipher && type) {
+            let hashFormat = '';
+            // Format hash based on message type
+            if (msgType === '10' || msgType === '30') { // AS-REQ or TGS-REQ
+              hashFormat = '$krb5pa$23$';
+              if (cname) hashFormat += `${cname}$`;
+              if (realm) hashFormat += `${realm}$`;
+              hashFormat += cipher;
+            } else if (msgType === '11') { // AS-REP
+              hashFormat = '$krb5asrep$23$';
+              if (cname) hashFormat += `${cname}@`;
+              if (realm) hashFormat += `${realm}$`;
+              hashFormat += cipher;
+            }
+
+            if (hashFormat) {
+              credentials.encrypted.push({
+                type: 'Kerberos',
+                hash: hashFormat,
+                username: cname || 'unknown',
+                realm: realm || 'unknown',
+                frame: frameNumber,
+                crackingMode: msgType === '11' ? 'hashcat -m 18200' : 'hashcat -m 7500'
+              });
+            }
+          }
+        });
+
+        console.error(`Found ${credentials.plaintext.length} plaintext and ${credentials.encrypted.length} encrypted credentials`);
   
         const outputText = `Analyzed PCAP: ${pcapPath}\n\n` +
-          `Credentials:\n${credentials.length > 0 ? credentials.map(c => c.type === 'Telnet Prompt' ? `${c.type}: ${c.data} (Frame ${c.frame})` : `${c.type}: ${c.username}:${c.password} (Frame ${c.frame})`).join('\n') : 'None'}`;
+          `Plaintext Credentials:\n${credentials.plaintext.length > 0 ? 
+            credentials.plaintext.map(c => 
+              c.type === 'Telnet Prompt' ? 
+                `${c.type}: ${c.data} (Frame ${c.frame})` : 
+                `${c.type}: ${c.username}:${c.password} (Frame ${c.frame})`
+            ).join('\n') : 
+            'None'}\n\n` +
+          `Encrypted/Hashed Credentials:\n${credentials.encrypted.length > 0 ?
+            credentials.encrypted.map(c =>
+              `${c.type}: User=${c.username} Realm=${c.realm} (Frame ${c.frame})\n` +
+              `Hash=${c.hash}\n` +
+              `Cracking Command: ${c.crackingMode}\n`
+            ).join('\n') :
+            'None'}\n\n` +
+          `Note: Encrypted credentials can be cracked using tools like John the Ripper or hashcat.\n` +
+          `For Kerberos hashes:\n` +
+          `- AS-REQ/TGS-REQ: hashcat -m 7500 or john --format=krb5pa-md5\n` +
+          `- AS-REP: hashcat -m 18200 or john --format=krb5asrep`;
   
         return {
           content: [{ type: 'text', text: outputText }],

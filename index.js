@@ -508,6 +508,152 @@ server.tool(
     }
   );
 
+// Add prompts for each tool
+server.prompt(
+  'capture_packets_prompt',
+  {
+    interface: z.string().optional().describe('Network interface to capture from'),
+    duration: z.number().optional().describe('Duration in seconds to capture'),
+  },
+  ({ interface = 'en0', duration = 5 }) => ({
+    messages: [{
+      role: 'user',
+      content: {
+        type: 'text',
+        text: `Please analyze the network traffic on interface ${interface} for ${duration} seconds and provide insights about:
+1. The types of traffic observed
+2. Any notable patterns or anomalies
+3. Key IP addresses and ports involved
+4. Potential security concerns`
+      }
+    }]
+  })
+);
+
+server.prompt(
+  'summary_stats_prompt',
+  {
+    interface: z.string().optional().describe('Network interface to capture from'),
+    duration: z.number().optional().describe('Duration in seconds to capture'),
+  },
+  ({ interface = 'en0', duration = 5 }) => ({
+    messages: [{
+      role: 'user',
+      content: {
+        type: 'text',
+        text: `Please provide a summary of network traffic statistics from interface ${interface} over ${duration} seconds, focusing on:
+1. Protocol distribution
+2. Traffic volume by protocol
+3. Notable patterns in protocol usage
+4. Potential network health indicators`
+      }
+    }]
+  })
+);
+
+server.prompt(
+  'conversations_prompt',
+  {
+    interface: z.string().optional().describe('Network interface to capture from'),
+    duration: z.number().optional().describe('Duration in seconds to capture'),
+  },
+  ({ interface = 'en0', duration = 5 }) => ({
+    messages: [{
+      role: 'user',
+      content: {
+        type: 'text',
+        text: `Please analyze network conversations on interface ${interface} for ${duration} seconds and identify:
+1. Most active IP pairs
+2. Conversation durations and data volumes
+3. Unusual communication patterns
+4. Potential indicators of network issues`
+      }
+    }]
+  })
+);
+
+server.prompt(
+  'check_threats_prompt',
+  {
+    interface: z.string().optional().describe('Network interface to capture from'),
+    duration: z.number().optional().describe('Duration in seconds to capture'),
+  },
+  ({ interface = 'en0', duration = 5 }) => ({
+    messages: [{
+      role: 'user',
+      content: {
+        type: 'text',
+        text: `Please analyze traffic on interface ${interface} for ${duration} seconds and check for security threats:
+1. Compare captured IPs against URLhaus blacklist
+2. Identify potential malicious activity
+3. Highlight any concerning patterns
+4. Provide security recommendations`
+      }
+    }]
+  })
+);
+
+server.prompt(
+  'check_ip_threats_prompt',
+  {
+    ip: z.string().describe('IP address to check'),
+  },
+  ({ ip }) => ({
+    messages: [{
+      role: 'user',
+      content: {
+        type: 'text',
+        text: `Please analyze the following IP address (${ip}) for potential security threats:
+1. Check against URLhaus blacklist
+2. Evaluate the IP's reputation
+3. Identify any known malicious activity
+4. Provide security recommendations`
+      }
+    }]
+  })
+);
+
+server.prompt(
+  'analyze_pcap_prompt',
+  {
+    pcapPath: z.string().describe('Path to the PCAP file'),
+  },
+  ({ pcapPath }) => ({
+    messages: [{
+      role: 'user',
+      content: {
+        type: 'text',
+        text: `Please analyze the PCAP file at ${pcapPath} and provide insights about:
+1. Overall traffic patterns
+2. Unique IPs and their interactions
+3. Protocols and services used
+4. Notable events or anomalies
+5. Potential security concerns`
+      }
+    }]
+  })
+);
+
+server.prompt(
+  'extract_credentials_prompt',
+  {
+    pcapPath: z.string().describe('Path to the PCAP file'),
+  },
+  ({ pcapPath }) => ({
+    messages: [{
+      role: 'user',
+      content: {
+        type: 'text',
+        text: `Please analyze the PCAP file at ${pcapPath} for potential credential exposure:
+1. Look for plaintext credentials (HTTP Basic Auth, FTP, Telnet)
+2. Identify Kerberos authentication attempts
+3. Extract any hashed credentials
+4. Provide security recommendations for credential handling`
+      }
+    }]
+  })
+);
+
 // Start the server
 server.connect(new StdioServerTransport())
   .then(() => console.error('WireMCP Server is running...'))

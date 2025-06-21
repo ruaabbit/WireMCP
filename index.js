@@ -1,4 +1,4 @@
-// index.js - WireMCP Server (Fixed for Windows paths with spaces)
+// index.js - WireMCP Server
 const axios = require('axios');
 const { exec } = require('child_process');
 const { promisify } = require('util');

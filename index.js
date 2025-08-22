@@ -308,16 +308,22 @@ server.tool(
       const tsharkPath = await findTshark();
       const { pcapPath } = args;
 
-      // Resolve relative path to absolute path
-      const absolutePcapPath = path.resolve(pcapPath);
-      console.error(`Analyzing PCAP file: ${absolutePcapPath}`);
+      // Handle path resolution - if it's already absolute, use as-is
+      // if it's relative, resolve it from current working directory
+      let resolvedPcapPath;
+      if (path.isAbsolute(pcapPath)) {
+        resolvedPcapPath = pcapPath;
+      } else {
+        resolvedPcapPath = path.resolve(process.cwd(), pcapPath);
+      }
+      console.error(`Analyzing PCAP file: ${resolvedPcapPath}`);
 
       // Check if file exists
-      await fs.access(absolutePcapPath);
+      await fs.access(resolvedPcapPath);
 
       // Extract broad packet data with increased maxBuffer for large files
       const { stdout, stderr } = await execAsync(
-        `"${tsharkPath}" -r "${absolutePcapPath}" -T json -e frame.number -e ip.src -e ip.dst -e tcp.srcport -e tcp.dstport -e udp.srcport -e udp.dstport -e http.host -e http.request.uri -e frame.protocols`,
+        `"${tsharkPath}" -r "${resolvedPcapPath}" -T json -e frame.number -e ip.src -e ip.dst -e tcp.srcport -e tcp.dstport -e udp.srcport -e udp.dstport -e http.host -e http.request.uri -e frame.protocols`,
         {
           env: { ...process.env, PATH: `${process.env.PATH}:/usr/bin:/usr/local/bin:/opt/homebrew/bin` },
           maxBuffer: 200 * 1024 * 1024 // 200MB buffer for large files
@@ -350,7 +356,7 @@ server.tool(
         console.error(`Trimmed packets from ${packets.length} to ${trimCount} to fit ${maxChars} chars`);
       }
 
-      const outputText = `Analyzed PCAP: ${absolutePcapPath}\n\n` +
+      const outputText = `Analyzed PCAP: ${resolvedPcapPath}\n\n` +
         `Unique IPs:\n${ips.join('\n')}\n\n` +
         `URLs:\n${urls.length > 0 ? urls.join('\n') : 'None'}\n\n` +
         `Protocols:\n${protocols.join('\n') || 'None'}\n\n` +
@@ -378,15 +384,21 @@ server.tool(
       const tsharkPath = await findTshark();
       const { pcapPath } = args;
 
-      // Resolve relative path to absolute path
-      const absolutePcapPath = path.resolve(pcapPath);
-      console.error(`Extracting credentials from PCAP file: ${absolutePcapPath}`);
+      // Handle path resolution - if it's already absolute, use as-is
+      // if it's relative, resolve it from current working directory
+      let resolvedPcapPath;
+      if (path.isAbsolute(pcapPath)) {
+        resolvedPcapPath = pcapPath;
+      } else {
+        resolvedPcapPath = path.resolve(process.cwd(), pcapPath);
+      }
+      console.error(`Extracting credentials from PCAP file: ${resolvedPcapPath}`);
 
-      await fs.access(absolutePcapPath);
+      await fs.access(resolvedPcapPath);
 
       // Extract plaintext credentials with increased maxBuffer for large files
       const { stdout: plaintextOut } = await execAsync(
-        `"${tsharkPath}" -r "${absolutePcapPath}" -T fields -e http.authbasic -e ftp.request.command -e ftp.request.arg -e telnet.data -e frame.number`,
+        `"${tsharkPath}" -r "${resolvedPcapPath}" -T fields -e http.authbasic -e ftp.request.command -e ftp.request.arg -e telnet.data -e frame.number`,
         {
           env: { ...process.env, PATH: `${process.env.PATH}:/usr/bin:/usr/local/bin:/opt/homebrew/bin` },
           maxBuffer: 50 * 1024 * 1024 // 50MB buffer for large files
@@ -395,7 +407,7 @@ server.tool(
 
       // Extract Kerberos credentials with increased maxBuffer for large files
       const { stdout: kerberosOut } = await execAsync(
-        `"${tsharkPath}" -r "${absolutePcapPath}" -T fields -e kerberos.CNameString -e kerberos.realm -e kerberos.cipher -e kerberos.type -e kerberos.msg_type -e frame.number`,
+        `"${tsharkPath}" -r "${resolvedPcapPath}" -T fields -e kerberos.CNameString -e kerberos.realm -e kerberos.cipher -e kerberos.type -e kerberos.msg_type -e frame.number`,
         {
           env: { ...process.env, PATH: `${process.env.PATH}:/usr/bin:/usr/local/bin:/opt/homebrew/bin` },
           maxBuffer: 50 * 1024 * 1024 // 50MB buffer for large files
@@ -492,7 +504,7 @@ server.tool(
 
       console.error(`Found ${credentials.plaintext.length} plaintext and ${credentials.encrypted.length} encrypted credentials`);
 
-      const outputText = `Analyzed PCAP: ${absolutePcapPath}\n\n` +
+      const outputText = `Analyzed PCAP: ${resolvedPcapPath}\n\n` +
         `Plaintext Credentials:\n${credentials.plaintext.length > 0 ?
           credentials.plaintext.map(c =>
             c.type === 'Telnet Prompt' ?
